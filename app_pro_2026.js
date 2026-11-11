@@ -1,13 +1,17 @@
 // ============================================================================
-// نظام إدارة التطبيق: 30 يوم مجاني + أوفلاين للمدفوع + الدفع عبر InstaPay + شروط كتيب 2026
-// متوافق مع تصميم وألوان الدليل الذكي والماسح الذكي (تطوير: أ/ نورهان صلاح)
+// نظام الحماية المتقدم: بصمة الهاردوير الثابتة + قفل كامل بعد 30 يوم + نظام Reject
+// متوافق مع الدليل الذكي والماسح الذكي (تطوير: أ/ نورهان صلاح)
 // ============================================================================
 
 const NS_APP_CONFIG = {
-  instapayAddress: "nourhansalah@instapay", // يمكن تعديل عنوان InstaPay الخاص بك هنا
-  whatsappNumber: "201208459828",           // رقم الواتساب لاستلام الإيصال وإرسال الكود
-  trialDays: 30,                            // مدة التجربة المجانية (30 يوم)
-  secretSalt: "NOURHAN_SALAH_LAB_2026",     // مفتاح التشفير لتوليد أكواد التفعيل
+  instapayAddress: "nourhansalah@instapay", // ضعي عنوان InstaPay الخاص بك هنا
+  whatsappNumber: "201208459828",           // رقم الواتساب لاستلام بصمة ونوع الجهاز
+  trialDays: 30,                            // مدة التجربة المجانية بالأيام
+  secretSalt: "NOURHAN_SALAH_LAB_2026",     // مفتاح التشفير الخاص بك
+  // قائمة بصمات الأجهزة المرفوضة نهائياً (أي بصمة تضعينها هنا يقفل عليها التطبيق فوراً حتى لو مسحه ونزله)
+  blockedFingerprints: [
+    "HW-00000000" // يمكنك إضافة أي بصمة جهاز تريدين عمل Reject دائم لها هنا
+  ],
   pricing: {
     annualUSD: "$9.99 / سنوياً",
     annualEGP: "300 ج.م / سنوياً",
@@ -55,28 +59,111 @@ const MABARET_2026_BOOKLET = {
   ]
 };
 
-let deferredInstallPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstallPrompt = e;
-  const installBtn = document.getElementById('ns-pwa-install-btn');
-  if (installBtn) installBtn.style.display = 'inline-flex';
-});
+// ============================================================================
+// 1. استخراج موديل الجهاز الحقيقي وبصمة الهاردوير الثابتة (لا تتغير بمسح التطبيق)
+// ============================================================================
+function getDetailedDeviceModel() {
+  const ua = navigator.userAgent || "";
+  let os = "Unknown OS";
+  let model = "Generic Device";
 
-function getDeviceId() {
-  let id = localStorage.getItem('ns_smartlab_device_id');
-  if (!id) {
-    const p1 = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const p2 = Math.random().toString(36).substring(2, 6).toUpperCase();
-    id = `LAB-${p1}-${p2}`;
-    localStorage.setItem('ns_smartlab_device_id', id);
+  if (/android/i.test(ua)) {
+    const match = ua.match(/Android\s+([\d.]+);\s*([^;)]+)/i);
+    if (match) {
+      os = `Android ${match[1]}`;
+      model = match[2].replace(/Build\/.*/i, '').trim();
+    } else {
+      os = "Android";
+    }
+  } else if (/iPad|iPhone|iPod/.test(ua)) {
+    os = "iOS (Apple)";
+    model = /iPad/.test(ua) ? `iPad (${screen.width}x${screen.height})` : `iPhone (${screen.width}x${screen.height})`;
+  } else if (/Windows NT/i.test(ua)) {
+    os = "Windows PC";
+    model = `Desktop (${navigator.platform})`;
+  } else if (/Macintosh/i.test(ua)) {
+    os = "MacOS";
+    model = "Mac Computer";
   }
-  return id;
+
+  let gpu = "";
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (gl) {
+      const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+      if (debugInfo) {
+        gpu = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || "";
+      }
+    }
+  } catch (e) {}
+
+  const cores = navigator.hardwareConcurrency ? `${navigator.hardwareConcurrency} Cores` : "";
+  const ram = navigator.deviceMemory ? `${navigator.deviceMemory}GB RAM` : "";
+  return `${os} | ${model} ${gpu ? '| GPU: ' + gpu.substring(0, 28) : ''} ${cores} ${ram}`.replace(/\s+/g, ' ').trim();
 }
 
-function generateActivationCode(deviceId) {
-  const cleanId = (deviceId || '').trim().toUpperCase();
-  const str = cleanId + "::" + NS_APP_CONFIG.secretSalt;
+function getHardwareFingerprint() {
+  let rawSignals = [
+    navigator.platform || '',
+    navigator.hardwareConcurrency || '',
+    navigator.deviceMemory || '',
+    `${screen.width}x${screen.height}x${screen.colorDepth}`,
+    window.devicePixelRatio || 1,
+    Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  ];
+
+  // استخراج موديل الهاردوير من الـ User-Agent بدون إصدار المتصفح حتى يظل ثابتاً
+  const ua = navigator.userAgent || "";
+  const androidModel = ua.match(/Android[^;]+;\s*([^;)]+)/i);
+  if (androidModel) rawSignals.push(androidModel[1].replace(/Build\/.*/i, '').trim());
+
+  // بصمة كارت الشاشة WebGL
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    if (gl) {
+      const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+      if (debugInfo) {
+        rawSignals.push(gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || '');
+        rawSignals.push(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '');
+      }
+    }
+  } catch (e) {}
+
+  // بصمة الرسم الفيزيائية Canvas Hardware Rendering
+  try {
+    const c = document.createElement('canvas');
+    c.width = 200;
+    c.height = 40;
+    const ctx = c.getContext('2d');
+    ctx.textBaseline = "top";
+    ctx.font = "14px 'Arial'";
+    ctx.fillStyle = "#0f766e";
+    ctx.fillRect(10, 1, 62, 20);
+    ctx.fillStyle = "#1e293b";
+    ctx.fillText("NS_LAB_HW_2026", 2, 15);
+    rawSignals.push(c.toDataURL().slice(-60));
+  } catch (e) {}
+
+  const combined = rawSignals.join('||');
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0, ch; i < combined.length; i++) {
+    ch = combined.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const hex = (h1 >>> 0).toString(16).toUpperCase().padStart(4, '0') +
+              (h2 >>> 0).toString(16).toUpperCase().padStart(4, '0');
+  return `HW-${hex.substring(0, 8)}`;
+}
+
+// توليد كود التفعيل أو كود الحظر (Reject) بناءً على بصمة الهاردوير
+function generateActivationCode(hwId) {
+  const cleanId = (hwId || '').trim().toUpperCase();
+  const str = cleanId + "::PRO::" + NS_APP_CONFIG.secretSalt;
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     hash = ((hash << 5) - hash) + str.charCodeAt(i);
@@ -84,6 +171,77 @@ function generateActivationCode(deviceId) {
   }
   const codePart = Math.abs(hash).toString(36).toUpperCase().padStart(6, '9').substring(0, 6);
   return `PRO-${codePart}`;
+}
+
+function generateRejectCode(hwId) {
+  const cleanId = (hwId || '').trim().toUpperCase();
+  const str = cleanId + "::REJECT::" + NS_APP_CONFIG.secretSalt;
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  const codePart = Math.abs(hash).toString(36).toUpperCase().padStart(6, '7').substring(0, 6);
+  return `REJ-${codePart}`;
+}
+
+// ============================================================================
+// 2. تخزين تاريخ بداية الـ 30 يوم في 4 طبقات متزامنة (لمنع التحايل بمسح الكاش)
+// ============================================================================
+async function syncPersistentTrialStart(currentTimestamp) {
+  let earliestTime = currentTimestamp;
+
+  // 1) فحص localStorage
+  const lsTime = parseInt(localStorage.getItem('ns_hw_trial_start'), 10);
+  if (lsTime && !isNaN(lsTime) && lsTime < earliestTime) earliestTime = lsTime;
+
+  // 2) فحص IndexedDB
+  try {
+    const idbTime = await new Promise((resolve) => {
+      const req = indexedDB.open('NS_Security_DB', 1);
+      req.onupgradeneeded = (e) => e.target.result.createObjectStore('sec');
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        const tx = db.transaction('sec', 'readonly');
+        const getReq = tx.objectStore('sec').get('trial_start');
+        getReq.onsuccess = () => resolve(parseInt(getReq.result, 10) || null);
+        getReq.onerror = () => resolve(null);
+      };
+      req.onerror = () => resolve(null);
+    });
+    if (idbTime && idbTime < earliestTime) earliestTime = idbTime;
+  } catch (e) {}
+
+  // 3) فحص Cache Storage API
+  try {
+    if ('caches' in window) {
+      const cache = await caches.open('ns-hw-sec-vault');
+      const res = await cache.match('/__ns_trial_stamp__');
+      if (res) {
+        const cTime = parseInt(await res.text(), 10);
+        if (cTime && !isNaN(cTime) && cTime < earliestTime) earliestTime = cTime;
+      }
+    }
+  } catch (e) {}
+
+  // إعادة كتابة أقدم تاريخ في جميع الطبقات الأربع
+  localStorage.setItem('ns_hw_trial_start', String(earliestTime));
+  try {
+    const req = indexedDB.open('NS_Security_DB', 1);
+    req.onsuccess = (e) => {
+      const db = e.target.result;
+      const tx = db.transaction('sec', 'readwrite');
+      tx.objectStore('sec').put(String(earliestTime), 'trial_start');
+    };
+  } catch (e) {}
+  try {
+    if ('caches' in window) {
+      const cache = await caches.open('ns-hw-sec-vault');
+      await cache.put('/__ns_trial_stamp__', new Response(String(earliestTime)));
+    }
+  } catch (e) {}
+
+  return earliestTime;
 }
 
 async function getAccurateTimestamp() {
@@ -95,46 +253,74 @@ async function getAccurateTimestamp() {
   return Date.now();
 }
 
+// ============================================================================
+// 3. القفل الكامل للتطبيق (Hard Lock) عند انتهاء الـ 30 يوم أو عمل Reject للجهاز
+// ============================================================================
+function executeHardLockScreen(reasonTitle, reasonDesc, isRejected = false) {
+  // مسح محتوى التطبيق بالكامل من الصفحة حتى يستحيل استخدامه أو فحصه
+  const mainEl = document.querySelector('main');
+  if (mainEl) mainEl.innerHTML = '';
+  const containerEl = document.querySelector('.container');
+  if (containerEl) containerEl.innerHTML = '';
+  const scannerBtn = document.getElementById('floating-scanner-btn');
+  if (scannerBtn) scannerBtn.remove();
+
+  openSubscriptionModal(true, `${reasonTitle}: ${reasonDesc}`, isRejected);
+}
+
 async function initSmartLabProSystem() {
-  const deviceId = getDeviceId();
-  const isPro = localStorage.getItem('ns_smartlab_pro_activated') === 'TRUE';
+  const hwId = getHardwareFingerprint();
+  const isPro = localStorage.getItem('ns_smartlab_pro_activated') === hwId;
+  const isRejectedLocal = localStorage.getItem('ns_smartlab_rejected') === 'TRUE' ||
+                          NS_APP_CONFIG.blockedFingerprints.includes(hwId);
+
+  if (isRejectedLocal && !isPro) {
+    executeHardLockScreen(
+      "⛔ تم رفض وحظر هذا الجهاز (Rejected Device)",
+      `تم إيقاف صلاحية وصول هذا الجهاز (${hwId}) بقرار من إدارة التطبيق لتجاوز الفترة التجريبية وعدم تفعيل الاشتراك.`,
+      true
+    );
+    return;
+  }
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
-      if (isPro) {
-        if (reg.active) reg.active.postMessage({ type: 'ACTIVATE_PRO_OFFLINE' });
-        navigator.serviceWorker.ready.then((r) => {
-          if (r.active) r.active.postMessage({ type: 'ACTIVATE_PRO_OFFLINE' });
-        });
+      if (isPro && reg.active) {
+        reg.active.postMessage({ type: 'ACTIVATE_PRO_OFFLINE' });
       }
     }).catch(() => {});
   }
 
-  // إذا كان المستخدم غير مشترك وانقطع الإنترنت، تظهر نافذة التفعيل فوراً
   if (!isPro && !navigator.onLine) {
-    renderSubscriptionBar(false, 0, deviceId);
-    openSubscriptionModal(true, "أنت غير متصل بالإنترنت حالياً. ميزة العمل بدون إنترنت (Offline Mode) متاحة فقط في النسخة المدفوعة.");
+    executeHardLockScreen(
+      "🔒 وضع عدم الاتصال بالإنترنت مغلق",
+      "ميزة العمل بدون إنترنت (Offline Mode) مخصصة للمشتركين في النسخة المدفوعة فقط."
+    );
     return;
   }
 
   const now = await getAccurateTimestamp();
-  let firstOpen = parseInt(localStorage.getItem('ns_smartlab_trial_start'), 10);
-  if (!firstOpen || isNaN(firstOpen)) {
-    firstOpen = now;
-    localStorage.setItem('ns_smartlab_trial_start', String(firstOpen));
-  }
-
+  const firstOpen = await syncPersistentTrialStart(now);
   const daysUsed = Math.floor((now - firstOpen) / (1000 * 60 * 60 * 24));
   const daysLeft = Math.max(0, NS_APP_CONFIG.trialDays - daysUsed);
 
-  renderSubscriptionBar(isPro, daysLeft, deviceId);
+  renderSubscriptionBar(isPro, daysLeft, hwId);
 
   if (!isPro && daysLeft <= 0) {
-    openSubscriptionModal(true, "انتهت الفترة التجريبية المجانية (30 يوماً). يرجى تفعيل النسخة المدفوعة عبر InstaPay للاستمرار في استخدام التطبيق وتفعيل وضع بدون إنترنت.");
+    executeHardLockScreen(
+      "⏳ انتهت الفترة التجريبية المجانية (30 يوماً)",
+      "تم إغلاق البرنامج تلقائياً لانتهاء فترة الـ 30 يوماً المجانية لهذا الجهاز. يرجى التفعيل عبر InstaPay لإعادة فتح البرنامج."
+    );
   }
 }
 
-function renderSubscriptionBar(isPro, daysLeft, deviceId) {
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+});
+
+function renderSubscriptionBar(isPro, daysLeft, hwId) {
   const existing = document.getElementById('ns-top-pro-bar');
   if (existing) existing.remove();
 
@@ -143,118 +329,117 @@ function renderSubscriptionBar(isPro, daysLeft, deviceId) {
   bar.style.cssText = 'background:linear-gradient(90deg,#042f2e,#0f766e,#115e59);color:#ffffff;padding:8px 16px;font-family:Cairo,sans-serif;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;direction:rtl;z-index:45;border-bottom:1px solid rgba(255,255,255,0.15);box-shadow:0 2px 10px rgba(0,0,0,0.15);';
 
   const badgeHtml = isPro
-    ? `<div style="display:flex;align-items:center;gap:6px;font-weight:700;color:#fde047;"><span>👑</span><span>النسخة المدفوعة مفعلة (تعمل بدون إنترنت Offline على جميع الأنظمة)</span></div>`
-    : `<div style="display:flex;align-items:center;gap:6px;font-weight:700;color:#fef08a;"><span>⏳</span><span>الفترة التجريبية المجانية: متبقي <b style="color:#fff;background:rgba(0,0,0,0.3);padding:1px 7px;border-radius:6px;">${daysLeft} يوم</b> (العمل بدون نت للمدفوع فقط)</span></div>`;
+    ? `<div style="display:flex;align-items:center;gap:6px;font-weight:700;color:#fde047;"><span>👑</span><span>النسخة المدفوعة مفعلة لجهازك (${hwId}) - تعمل بدون إنترنت</span></div>`
+    : `<div style="display:flex;align-items:center;gap:6px;font-weight:700;color:#fef08a;"><span>⏳</span><span>الفترة التجريبية: متبقي <b style="color:#fff;background:rgba(0,0,0,0.35);padding:1px 7px;border-radius:6px;">${daysLeft} يوم</b> ثم يغلق البرنامج نهائياً</span></div>`;
 
   bar.innerHTML = `
     ${badgeHtml}
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <button onclick="openBookletRulesModal()" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:5px 12px;border-radius:10px;cursor:pointer;font-family:Cairo,sans-serif;font-weight:700;font-size:12px;display:inline-flex;align-items:center;gap:5px;transition:0.2s;">
-        <span>📘</span><span>قواعد وجدول مواعيد كتيب 2026</span>
+      <button onclick="openBookletRulesModal()" style="background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.3);padding:5px 12px;border-radius:10px;cursor:pointer;font-family:Cairo,sans-serif;font-weight:700;font-size:12px;">
+        📘 قواعد وجدول مواعيد كتيب 2026
       </button>
-      <button id="ns-pwa-install-btn" onclick="triggerAppInstall()" style="background:#0284c7;color:#fff;border:none;padding:5px 12px;border-radius:10px;cursor:pointer;font-family:Cairo,sans-serif;font-weight:700;font-size:12px;display:inline-flex;align-items:center;gap:5px;transition:0.2s;">
-        <span>📲</span><span>تثبيت التطبيق</span>
+      <button onclick="triggerAppInstall()" style="background:#0284c7;color:#fff;border:none;padding:5px 12px;border-radius:10px;cursor:pointer;font-family:Cairo,sans-serif;font-weight:700;font-size:12px;">
+        📲 تثبيت التطبيق
       </button>
       ${!isPro ? `
-      <button onclick="openSubscriptionModal(false)" style="background:#f59e0b;color:#0f172a;border:none;padding:5px 14px;border-radius:10px;cursor:pointer;font-family:Cairo,sans-serif;font-weight:800;font-size:12px;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 8px rgba(245,158,11,0.4);">
-        <span>⚡</span><span>تفعيل النسخة المدفوعة (InstaPay)</span>
+      <button onclick="openSubscriptionModal(false)" style="background:#f59e0b;color:#0f172a;border:none;padding:5px 14px;border-radius:10px;cursor:pointer;font-family:Cairo,sans-serif;font-weight:800;font-size:12px;">
+        ⚡ تفعيل النسخة المدفوعة (InstaPay)
       </button>` : ''}
     </div>
   `;
-
   document.body.prepend(bar);
 }
 
 async function triggerAppInstall() {
   if (deferredInstallPrompt) {
     deferredInstallPrompt.prompt();
-    const { outcome } = await deferredInstallPrompt.userChoice;
-    if (outcome === 'accepted') {
-      deferredInstallPrompt = null;
-    }
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
   } else {
-    alert("📲 لتثبيت التطبيق على جهازك:\n\n• للأندرويد والويندوز (Chrome/Edge): اضغط على القائمة (⋮) أعلى المتصفح ثم اختر (تثبيت التطبيق / Install App).\n• للآيفون (iOS Safari): اضغط على زر المشاركة (Share) بالأسفل ثم اختر (إضافة إلى الشاشة الرئيسية / Add to Home Screen).");
+    alert("📲 لتثبيت التطبيق:\n• أندرويد وويندوز: من قائمة المتصفح (⋮) اختر (تثبيت التطبيق / Install App).\n• آيفون (Safari): اضغط مشاركة (Share) ثم (Add to Home Screen).");
   }
 }
 
-function openSubscriptionModal(isLocked = false, alertMessage = "") {
+function openSubscriptionModal(isLocked = false, alertMessage = "", isRejected = false) {
   const old = document.getElementById('ns-pro-modal');
   if (old) old.remove();
 
-  const deviceId = getDeviceId();
-  const waMsg = encodeURIComponent(`مرحباً أ/ نورهان، قمت بتحويل اشتراك تطبيق التحاليل الطبية عبر InstaPay وأرغب في استلام كود التفعيل.\nرقم الجهاز (Device ID): ${deviceId}`);
+  const hwId = getHardwareFingerprint();
+  const deviceModel = getDetailedDeviceModel();
+  const firstOpen = parseInt(localStorage.getItem('ns_hw_trial_start'), 10);
+  const startDateStr = firstOpen ? new Date(firstOpen).toLocaleDateString('ar-EG') : 'اليوم';
+
+  const waMsg = encodeURIComponent(
+    `مرحباً أ/ نورهان، قمت بتحويل اشتراك التطبيق عبر InstaPay وأرغب في استلام كود التفعيل.\n` +
+    `• بصمة الهاردوير الثابتة: ${hwId}\n` +
+    `• نوع الجهاز: ${deviceModel}\n` +
+    `• تاريخ بداية التجربة: ${startDateStr}`
+  );
 
   const modal = document.createElement('div');
   modal.id = 'ns-pro-modal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.88);backdrop-filter:blur(6px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl;font-family:Cairo,sans-serif;';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.95);backdrop-filter:blur(8px);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;direction:rtl;font-family:Cairo,sans-serif;';
 
   modal.innerHTML = `
-    <div style="background:#ffffff;color:#1e293b;max-width:500px;width:100%;border-radius:24px;overflow:hidden;box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);max-height:92vh;display:flex;flex-direction:column;">
-      <div style="background:linear-gradient(135deg,#134e4a,#0f766e);color:#fff;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;">
+    <div style="background:#ffffff;color:#1e293b;max-width:510px;width:100%;border-radius:24px;overflow:hidden;box-shadow:0 25px 50px -12px rgba(0,0,0,0.6);max-height:92vh;display:flex;flex-direction:column;">
+      <div style="background:${isRejected ? '#991b1b' : 'linear-gradient(135deg,#134e4a,#0f766e)'};color:#fff;padding:18px 22px;display:flex;justify-content:space-between;align-items:center;">
         <div>
-          <h3 style="margin:0;font-size:18px;font-weight:900;">👑 ترقية التطبيق للنسخة المدفوعة (Pro)</h3>
-          <p style="margin:2px 0 0;font-size:12px;color:#99f6e4;">يعمل بدون إنترنت (Offline) على Android & iOS & Windows</p>
+          <h3 style="margin:0;font-size:18px;font-weight:900;">${isRejected ? '⛔ هذا الجهاز مرفوض ومحظور (Rejected)' : '👑 تفعيل النسخة المدفوعة (Pro)'}</h3>
+          <p style="margin:2px 0 0;font-size:12px;color:#e2e8f0;">مربوط ببصمة الهاردوير الثابتة للجهاز (${hwId})</p>
         </div>
         ${!isLocked ? `<button onclick="document.getElementById('ns-pro-modal').remove()" style="background:rgba(255,255,255,0.15);color:#fff;border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-weight:bold;">✕</button>` : ''}
       </div>
 
-      <div style="padding:20px;overflow-y:auto;space-y:14px;">
-        ${alertMessage ? `<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:10px 14px;border-radius:12px;font-size:13px;font-weight:700;margin-bottom:14px;">⚠️ ${alertMessage}</div>` : ''}
+      <div style="padding:20px;overflow-y:auto;">
+        ${alertMessage ? `<div style="background:#fef2f2;border:1.5px solid #ef4444;color:#991b1b;padding:12px;border-radius:12px;font-size:13px;font-weight:800;margin-bottom:14px;line-height:1.6;">${alertMessage}</div>` : ''}
 
-        <div style="background:#f0fdfa;border:1px solid #ccfbf1;border-radius:16px;padding:14px;margin-bottom:14px;">
-          <div style="font-weight:800;color:#0f766e;font-size:14px;margin-bottom:6px;">✨ مميزات النسخة المدفوعة:</div>
-          <ul style="margin:0;padding-right:18px;font-size:13px;color:#334155;line-height:1.7;">
-            <li><b>العمل بدون إنترنت نهائياً (100% Offline)</b> داخل المعمل أو المستشفى.</li>
-            <li>شامل جميع شروط وتحديثات كتيب المعامل الجديد <b>(إصدار V13.0 - 2026)</b>.</li>
-            <li>تصدير ومشاركة بطاقات شروط التحاليل بجودة عالية عبر واتساب.</li>
-          </ul>
+        <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:14px;padding:12px;margin-bottom:14px;font-size:12.5px;">
+          <div style="font-weight:800;color:#0f172a;margin-bottom:4px;">📱 بيانات وبصمة جهازك المسجلة أمنياً:</div>
+          <div style="color:#334155;">• <b>بصمة الهاردوير (لا تتغير بمسح التطبيق):</b> <code style="background:#fef08a;padding:2px 6px;border-radius:4px;font-weight:900;color:#854d0e;">${hwId}</code></div>
+          <div style="color:#334155;margin-top:4px;">• <b>نوع وموديل الجهاز:</b> <span style="color:#0369a1;font-weight:700;">${deviceModel}</span></div>
         </div>
 
         <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:14px;margin-bottom:14px;">
-          <div style="font-weight:800;color:#0f172a;font-size:14px;margin-bottom:8px;">💳 قيمة الاشتراك والدفع عبر InstaPay:</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
-            <div style="background:#fff;border:1px solid #cbd5e1;padding:10px;border-radius:12px;text-align:center;">
-              <div style="font-size:12px;color:#64748b;font-weight:700;">باقة الاشتراك السنوي</div>
-              <div style="font-size:15px;font-weight:900;color:#0f766e;margin-top:2px;">${NS_APP_CONFIG.pricing.annualUSD}</div>
-              <div style="font-size:12px;font-weight:700;color:#d97706;">أو ${NS_APP_CONFIG.pricing.annualEGP}</div>
+          <div style="font-weight:800;color:#0f172a;font-size:13.5px;margin-bottom:8px;">💳 خطط التفعيل والدفع عبر InstaPay:</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+            <div style="background:#fff;border:1px solid #cbd5e1;padding:8px;border-radius:10px;text-align:center;">
+              <div style="font-size:11.5px;color:#64748b;font-weight:700;">اشتراك سنوي</div>
+              <div style="font-size:14px;font-weight:900;color:#0f766e;">${NS_APP_CONFIG.pricing.annualUSD}</div>
+              <div style="font-size:11.5px;font-weight:700;color:#d97706;">أو ${NS_APP_CONFIG.pricing.annualEGP}</div>
             </div>
-            <div style="background:#fffbeb;border:2px solid #f59e0b;padding:10px;border-radius:12px;text-align:center;">
-              <div style="font-size:12px;color:#b45309;font-weight:800;">⭐ تفعيل مدى الحياة</div>
-              <div style="font-size:15px;font-weight:900;color:#0f766e;margin-top:2px;">${NS_APP_CONFIG.pricing.lifetimeUSD}</div>
-              <div style="font-size:12px;font-weight:700;color:#d97706;">أو ${NS_APP_CONFIG.pricing.lifetimeEGP}</div>
+            <div style="background:#fffbeb;border:2px solid #f59e0b;padding:8px;border-radius:10px;text-align:center;">
+              <div style="font-size:11.5px;color:#b45309;font-weight:800;">⭐ مدى الحياة</div>
+              <div style="font-size:14px;font-weight:900;color:#0f766e;">${NS_APP_CONFIG.pricing.lifetimeUSD}</div>
+              <div style="font-size:11.5px;font-weight:700;color:#d97706;">أو ${NS_APP_CONFIG.pricing.lifetimeEGP}</div>
             </div>
           </div>
 
-          <div style="font-size:12.5px;font-weight:700;color:#334155;margin-bottom:4px;">عنوان الدفع اللحظي (InstaPay IPA):</div>
           <div style="display:flex;align-items:center;justify-content:space-between;background:#e0f2fe;border:1px solid #bae6fd;padding:8px 12px;border-radius:10px;">
-            <code style="font-size:14px;font-weight:900;color:#0369a1;letter-spacing:0.5px;">${NS_APP_CONFIG.instapayAddress}</code>
-            <button onclick="navigator.clipboard.writeText('${NS_APP_CONFIG.instapayAddress}');alert('تم نسخ عنوان InstaPay بنجاح!');" style="background:#0284c7;color:#fff;border:none;padding:5px 12px;border-radius:8px;cursor:pointer;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;">نسخ العنوان</button>
+            <code style="font-size:14px;font-weight:900;color:#0369a1;">${NS_APP_CONFIG.instapayAddress}</code>
+            <button onclick="navigator.clipboard.writeText('${NS_APP_CONFIG.instapayAddress}');alert('تم نسخ عنوان InstaPay!');" style="background:#0284c7;color:#fff;border:none;padding:5px 12px;border-radius:8px;cursor:pointer;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;">نسخ العنوان</button>
           </div>
-        </div>
 
-        <div style="background:#fefce8;border:1px solid #fde047;border-radius:14px;padding:12px;margin-bottom:14px;font-size:12.5px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <span style="font-weight:700;color:#713f12;">رقم تعريف جهازك:</span>
-            <code style="background:#fef08a;padding:2px 8px;border-radius:6px;font-weight:900;color:#854d0e;font-size:13px;">${deviceId}</code>
-          </div>
-          <a href="https://wa.me/${NS_APP_CONFIG.whatsappNumber}?text=${waMsg}" target="_blank" style="display:block;text-align:center;background:#16a34a;color:#fff;text-decoration:none;padding:9px;border-radius:10px;font-weight:800;font-size:13px;box-shadow:0 2px 6px rgba(22,163,74,0.3);">
-            📲 إرسال إيصال InstaPay عبر واتساب لاستلام الكود
+          <a href="https://wa.me/${NS_APP_CONFIG.whatsappNumber}?text=${waMsg}" target="_blank" style="display:block;text-align:center;background:#16a34a;color:#fff;text-decoration:none;padding:9px;border-radius:10px;font-weight:800;font-size:13px;margin-top:10px;">
+            📲 إرسال إيصال InstaPay وبصمة الجهاز عبر واتساب
           </a>
         </div>
 
         <div>
-          <label style="display:block;font-size:13px;font-weight:800;color:#0f172a;margin-bottom:6px;">🔑 أدخل كود التفعيل لتشغيل النسخة المدفوعة والأوفلاين:</label>
+          <label style="display:block;font-size:13px;font-weight:800;color:#0f172a;margin-bottom:6px;">🔑 أدخل كود التفعيل الخاص ببصمة جهازك:</label>
           <div style="display:flex;gap:8px;">
-            <input id="ns-activation-input" type="text" placeholder="مثال: PRO-9A8B7C" style="flex:1;padding:10px;border:1.5px solid #cbd5e1;border-radius:10px;font-family:Cairo,sans-serif;font-size:14px;font-weight:700;text-align:center;text-transform:uppercase;" />
-            <button onclick="handleVerifyActivation()" style="background:#0f766e;color:#fff;border:none;padding:10px 20px;border-radius:10px;cursor:pointer;font-family:Cairo,sans-serif;font-weight:800;font-size:14px;">تفعيل الآن</button>
+            <input id="ns-activation-input" type="text" placeholder="PRO-XXXXXX" style="flex:1;padding:10px;border:1.5px solid #cbd5e1;border-radius:10px;font-family:Cairo,sans-serif;font-size:14px;font-weight:700;text-align:center;text-transform:uppercase;" />
+            <button onclick="handleVerifyActivation()" style="background:#0f766e;color:#fff;border:none;padding:10px 20px;border-radius:10px;cursor:pointer;font-family:Cairo,sans-serif;font-weight:800;font-size:14px;">تأكيد</button>
           </div>
 
-          <!-- لوحة توليد الأكواد السرية للأدمن فقط (تظهر عند كتابة ADMIN2026) -->
+          <!-- لوحة الأدمن السرية (تظهر عند كتابة ADMIN2026) لتوليد كود تفعيل أو كود Reject -->
           <div id="ns-secret-admin-panel" style="display:none;margin-top:12px;background:#f1f5f9;border:1.5px dashed #64748b;padding:12px;border-radius:12px;">
-            <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:6px;">🛠️ لوحة أ/ نورهان صلاح لتوليد أكواد تفعيل المشتركين:</div>
-            <input id="ns-admin-client-id" type="text" placeholder="ضعي رقم جهاز العميل هنا (LAB-XXXX-XXXX)" style="width:100%;padding:8px;border:1px solid #94a3b8;border-radius:8px;margin-bottom:8px;font-family:Cairo,sans-serif;font-size:13px;box-sizing:border-box;" />
-            <button onclick="document.getElementById('ns-admin-out-key').innerText = 'كود تفعيل العميل هو: ' + generateActivationCode(document.getElementById('ns-admin-client-id').value)" style="background:#0f172a;color:#fff;border:none;padding:6px 14px;border-radius:8px;cursor:pointer;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;">توليد كود التفعيل</button>
-            <div id="ns-admin-out-key" style="margin-top:8px;font-weight:900;color:#15803d;font-size:14px;"></div>
+            <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:6px;">🛠️ لوحة أ/ نورهان صلاح (تفعيل أو Reject ببصمة الهاردوير):</div>
+            <input id="ns-admin-client-id" type="text" placeholder="أدخلي بصمة جهاز العميل (HW-XXXXXXXX)" style="width:100%;padding:8px;border:1px solid #94a3b8;border-radius:8px;margin-bottom:8px;font-family:Cairo,sans-serif;font-size:13px;box-sizing:border-box;" />
+            <div style="display:flex;gap:8px;">
+              <button onclick="document.getElementById('ns-admin-out-key').innerText = '✅ كود التفعيل: ' + generateActivationCode(document.getElementById('ns-admin-client-id').value)" style="flex:1;background:#15803d;color:#fff;border:none;padding:7px;border-radius:8px;cursor:pointer;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;">توليد كود تفعيل (PRO)</button>
+              <button onclick="document.getElementById('ns-admin-out-key').innerText = '⛔ كود الحظر النهائي: ' + generateRejectCode(document.getElementById('ns-admin-client-id').value)" style="flex:1;background:#b91c1c;color:#fff;border:none;padding:7px;border-radius:8px;cursor:pointer;font-family:Cairo,sans-serif;font-size:12px;font-weight:700;">توليد كود رفض (REJECT)</button>
+            </div>
+            <div id="ns-admin-out-key" style="margin-top:8px;font-weight:900;color:#0f172a;font-size:14px;text-align:center;"></div>
           </div>
         </div>
       </div>
@@ -269,16 +454,27 @@ function handleVerifyActivation() {
     document.getElementById('ns-secret-admin-panel').style.display = 'block';
     return;
   }
-  const expected = generateActivationCode(getDeviceId());
-  if (val === expected) {
-    localStorage.setItem('ns_smartlab_pro_activated', 'TRUE');
+  const hwId = getHardwareFingerprint();
+  const expectedPro = generateActivationCode(hwId);
+  const expectedRej = generateRejectCode(hwId);
+
+  if (val === expectedRej) {
+    localStorage.setItem('ns_smartlab_rejected', 'TRUE');
+    alert("⛔ تم رفض وحظر هذا الجهاز نهائياً من قِبل الإدارة.");
+    window.location.reload();
+    return;
+  }
+
+  if (val === expectedPro) {
+    localStorage.removeItem('ns_smartlab_rejected');
+    localStorage.setItem('ns_smartlab_pro_activated', hwId);
     if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'ACTIVATE_PRO_OFFLINE' });
     }
-    alert("🎉 تم تفعيل النسخة المدفوعة بنجاح! تم الآن حفظ التطبيق بالكامل للعمل بدون إنترنت (Offline Mode) مدى الحياة.");
+    alert("🎉 تم تفعيل النسخة المدفوعة بنجاح على بصمة جهازك! يعمل التطبيق الآن بدون إنترنت مدى الحياة.");
     window.location.reload();
   } else {
-    alert("❌ كود التفعيل غير مطابق لرقم جهازك. تأكد من إرسال رقم تعريف جهازك الصحيح عبر واتساب.");
+    alert("❌ الكود غير صحيح لبصمة هذا الجهاز (" + hwId + ").");
   }
 }
 
@@ -320,9 +516,7 @@ function openBookletRulesModal() {
 
       <div style="padding:20px;overflow-y:auto;">
         <h4 style="margin:0 0 10px;color:#0f766e;font-size:15px;font-weight:900;">1️⃣ القواعد العامة للاستلام، التخفيف، والمعدلات الطبيعية:</h4>
-        <ul style="font-size:13.5px;line-height:1.75;color:#334155;padding-right:20px;margin-bottom:20px;">
-          ${rulesHtml}
-        </ul>
+        <ul style="font-size:13.5px;line-height:1.75;color:#334155;padding-right:20px;margin-bottom:20px;">${rulesHtml}</ul>
 
         <h4 style="margin:0 0 10px;color:#0f766e;font-size:15px;font-weight:900;">2️⃣ جدول حساب مواعيد استلام النتائج (مع إسقاط عطلة يوم الجمعة):</h4>
         <div style="overflow-x:auto;margin-bottom:20px;">
@@ -342,9 +536,7 @@ function openBookletRulesModal() {
         </div>
 
         <h4 style="margin:0 0 10px;color:#0f766e;font-size:15px;font-weight:900;">3️⃣ دليل الحروف الخضراء لأجهزة التحاليل المعتمدة في الكتيب:</h4>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;">
-          ${instHtml}
-        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:8px;">${instHtml}</div>
       </div>
     </div>
   `;

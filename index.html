@@ -180,7 +180,7 @@
       <!-- Categories Pills -->
       <div class="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar text-xs sm:text-sm font-bold" id="category-tabs">
         <button onclick="filterCategory('all')" class="cat-btn px-4 py-2.5 rounded-2xl transition whitespace-nowrap bg-teal-600 text-white shadow" data-cat="all" id="tab-all">الكل (49)</button>
-        <button onclick="filterCategory('booklet2026')" class="cat-btn px-4 py-2.5 rounded-2xl transition whitespace-nowrap bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200" data-cat="booklet2026" id="tab-booklet2026"> المزارع والحساسية </button>
+        <button onclick="filterCategory('booklet2026')" class="cat-btn px-4 py-2.5 rounded-2xl transition whitespace-nowrap bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200" data-cat="booklet2026" id="tab-booklet2026">✨ شروط كتيب 2026 الجديدة (18)</button>
         <button onclick="filterCategory('sugar')" class="cat-btn px-4 py-2.5 rounded-2xl transition whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-slate-200" data-cat="sugar" id="tab-sugar">السكر والدهون</button>
         <button onclick="filterCategory('hormones')" class="cat-btn px-4 py-2.5 rounded-2xl transition whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-slate-200" data-cat="hormones" id="tab-hormones">الهرمونات والمواعيد</button>
         <button onclick="filterCategory('restrictions')" class="cat-btn px-4 py-2.5 rounded-2xl transition whitespace-nowrap bg-slate-100 text-slate-700 hover:bg-slate-200" data-cat="restrictions" id="tab-restrictions">أدوية وحمية غذائية</button>
@@ -206,6 +206,13 @@
     </div>
 
   </main>
+
+  <!-- Footer مطابق لفوتر الاسكانر الذكي -->
+  <footer class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 pt-4 border-t border-slate-300/80 text-center text-xs sm:text-sm text-slate-600 font-semibold w-full">
+    <p id="footer-copyright-text">
+      © جميع الحقوق محفوظة | تطوير: <a href="https://nourhan-salah.github.io/nour-portfolio/?fbclid=IwVERDUAUkwOlleHRuA2FlbQIxMABwZG9mAXNydGMGYXBwX2lkDDM1MDY4NTUzMTcyOAABHsaIO844ow-bJ2Vt8YZu7IGR-mvxl4y7vc3tKWOJz9f9nCc5Cy7K8wvr9Gw4_aem_ZfZ8NWbfFDZnPxrsO1x0Kg" target="_blank" rel="noopener noreferrer" class="text-teal-700 hover:text-amber-600 font-extrabold hover:underline transition">نورهان صلاح (Nourhan Salah)</a>
+    </p>
+  </footer>
 
   <!-- Mobile Image Preview & Save Modal -->
   <div id="image-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
@@ -1406,7 +1413,7 @@
 
       document.getElementById('tab-all').innerText = isAr ? 'الكل (49)' : 'All (49)';
       const tab2026 = document.getElementById('tab-booklet2026');
-      if (tab2026) tab2026.innerText = isAr ? 'المزارع والحساسية' : 'Farmers and Allergies';
+      if (tab2026) tab2026.innerText = isAr ? '✨ شروط كتيب 2026 الجديدة (18)' : '✨ 2026 Booklet Rules (18)';
       document.getElementById('tab-sugar').innerText = isAr ? 'السكر والدهون' : 'Glucose & Lipids';
       document.getElementById('tab-hormones').innerText = isAr ? 'الهرمونات والمواعيد' : 'Hormones & Timings';
       document.getElementById('tab-restrictions').innerText = isAr ? 'أدوية وحمية غذائية' : 'Diet & Medications';

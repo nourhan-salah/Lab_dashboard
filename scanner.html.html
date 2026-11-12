@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#115e59">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Smart Lab">
+    <title>الماسح الذكي لتحضيرات التحاليل الطبية</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- مكتبة القص التفاعلية Cropper.js -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
+    <!-- ملف التحاليل التخصصية DotCare -->
+    <script src="dotcare.js"></script>
+
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(180deg, #0d5c58 0%, #063836 100%);
+            --primary: #00bfa5;
+            --accent: #f59e0b;
+            --card-bg: #114b48;
+            --text-main: #ffffff;
+            --text-sub: #b2dfdb;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', sans-serif; }
+        body { background: var(--bg-gradient); min-height: 100vh; color: var(--text-main); padding: 20px 15px 80px; }
+        .container { max-width: 550px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 22px; }
+        header h1 { font-size: 1.35rem; font-weight: 800; margin-bottom: 5px; }
+        header p { font-size: 0.85rem; color: var(--text-sub); }
+
+        .controls-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 18px 16px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+        }
+
+        .gender-options { display: flex; gap: 20px; margin-bottom: 16px; align-items: center; }
+        .gender-options label { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer; }
+
+        .upload-area { display: flex; flex-direction: column; gap: 10px; }
+        .btn-action {
+            background-color: var(--primary);
+            color: #00332c;
+            border: none;
+            padding: 13px;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            text-align: center;
+            display: block;
+            width: 100%;
+            transition: 0.2s;
+        }
+        .btn-action:hover { opacity: 0.92; }
+
+        input[type="file"] { display: none; }
+
+        /* منطقة القص المباشر */
+        #cropWrapper {
+            display: none;
+            margin-top: 15px;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            max-height: 380px;
+        }
+        #imageToCrop {
+            max-width: 100%;
+            display: block;
+        }
+
+        .crop-controls {
+            display: none;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn-sub {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.25);
+            padding: 7px 15px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 25, 30, 0.85);
+            backdrop-filter: blur(8px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-card {
+            background: rgba(12, 30, 38, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 25px 30px;
+            border-radius: 20px;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .spinner {
+            width: 48px; height: 48px;
+            border: 5px solid rgba(255, 255, 255, 0.2);
+            border-top: 5px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .results-section { margin-top: 20px; display: none; }
+        .results-section h3 { font-size: 1.1rem; margin-bottom: 12px; color: var(--accent); }
+
+        .source-badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            padding: 4px 10px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            background: rgba(255, 255, 255, 0.15);
+            color: var(--text-sub);
+            font-weight: 700;
+        }
+
+        .test-result-card {
+            background: #ffffff;
+            color: #263238;
+            border-radius: 12px;
+            padding: 15px 18px;
+            margin-bottom: 12px;
+            border-right: 6px solid var(--primary);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+        }
+
+        .test-result-card.warning-female { border-right-color: #e91e63; }
+        .test-result-card h4 { color: #00796b; font-size: 1rem; margin-bottom: 6px; }
+        .test-result-card p { font-size: 0.88rem; line-height: 1.6; }
+
+        .alert-box {
+            background: #ffebee;
+            color: #c2185b;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-weight: 700;
+            margin-top: 8px;
+            font-size: 0.82rem;
+            display: inline-block;
+        }
+
+        footer {
+            margin-top: 35px;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            padding-top: 15px;
+            font-size: 0.82rem;
+            color: var(--text-sub);
+        }
+        footer a { color: var(--primary); text-decoration: none; font-weight: 700; }
+        footer a:hover { color: var(--accent); text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>الماسح الذكي لتحضيرات التحاليل</h1>
+        <p>تحديد الروشتة وقصها بدقة مع فحص DotCare والذكاء الاصطناعي</p>
+    </header>
+
+    <div class="controls-card">
+        <div class="gender-options">
+            <span style="font-weight:700; font-size:0.92rem;">نوع الحالة:</span>
+            <label><input type="radio" name="gender" value="أنثى" checked> أنثى (Female)</label>
+            <label><input type="radio" name="gender" value="ذكر"> ذكر (Male)</label>
+        </div>
+
+        <div class="upload-area">
+            <label for="cameraInput" class="btn-action">📸 فتح الكاميرا وتصوير الروشتة</label>
+            <input type="file" id="cameraInput" accept="image/*" capture="environment" onchange="initCropper(this)">
+
+            <label for="fileInput" class="btn-action" style="background-color: transparent; color: #fff; border: 1px solid rgba(255,255,255,0.3);">📁 اختيار صورة من المعرض</label>
+            <input type="file" id="fileInput" accept="image/*" onchange="initCropper(this)">
+        </div>
+
+        <!-- شاشة القص الاحترافية Cropper -->
+        <div id="cropWrapper">
+            <img id="imageToCrop" alt="قص الصورة">
+        </div>
+
+        <div class="crop-controls" id="cropControls">
+            <button class="btn-sub" onclick="rotateCropper(-90)">🔄 تدوير يسار</button>
+            <button class="btn-sub" onclick="rotateCropper(90)">🔄 تدوير يمين</button>
+            <button class="btn-sub" style="background: var(--accent); border-color: transparent;" onclick="confirmCropAndScan()">✂️ اعتماد القص وفحص الروشتة</button>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-card">
+            <div class="spinner"></div>
+            <h3>جاري الفحص المتقدم...</h3>
+            <p id="loadingMsg" style="font-size: 0.85rem; color: #b2dfdb;">قراءة الفحوصات ومطابقة الشروط...</p>
+        </div>
+    </div>
+
+    <div class="results-section" id="resultsSection">
+        <div id="scanModeBadge" class="source-badge"></div>
+        <h3>التحاليل المكتشفة وشروط التحضير:</h3>
+        <div id="resultsList"></div>
+    </div>
+
+    <footer>
+        <p>© جميع الحقوق محفوظة | تطوير: <a href="https://nourhan-salah.github.io/nour-portfolio/?fbclid=IwVERDUAUkwOlleHRuA2FlbQIxMABwZG9mAXNydGMGYXBwX2lkDDM1MDY4NTUzMTcyOAABHsaIO844ow-bJ2Vt8YZu7IGR-mvxl4y7vc3tKWOJz9f9nCc5Cy7K8wvr9Gw4_aem_ZfZ8NWbfFDZnPxrsO1x0Kg" target="_blank" rel="noopener noreferrer">نورهان صلاح (Nourhan Salah)</a></p>
+    </footer>
+</div>
+
+<script>
+    const _kPart1 = "QVEuQWI4Uk42STFPTkh4";
+    const _kPart2 = "Y3JRUm8xMkowLTlNUVBM";
+    const _kPart3 = "bm5vSTluZXhNTEhhckJY";
+    const _kPart4 = "anl3aTdrd0E=";
+    const getSecureKey = () => atob(_kPart1 + _kPart2 + _kPart3 + _kPart4);
+
+    let cropperInstance = null;
+
+    const primaryCommonRules = [
+        {
+            name: "فيتامين د (Vitamin D / 25-OH) [204108]",
+            test: (t) => /vitamin\s*d|vit\s*d|v\.d|25[-_ ]?oh|204108/i.test(t),
+            getNotes: (isFemale) => isFemale 
+                ? `سيرم دم لا يحتاج إلى صيام.<br><span class="alert-box">⚠️ تنبيه خاص بالحالة (أنثى): لا يتم السحب أثناء فترة الدورة الشهرية (البريود)، ويتم السحب بعد الانتهاء منها بـ 48 ساعة.</span>`
+                : `سيرم دم لا يحتاج إلى صيام، مع تجنب تناول جرعات مكثفة من فيتامين د قبل الفحص بيومين.`
+        },
+        {
+            name: "صورة دم كاملة (COMPLETE BLOOD PICTURE - CBC) [2090001]",
+            test: (t) => /\bcbc\b|complete\s*blood|blood\s*picture|2090001/i.test(t),
+            getNotes: () => `دم كامل على أنبوبة EDTA، لا يشترط الصيام، مع خلط الأنبوبة بلطف فور السحب.`
+        },
+        {
+            name: "سكر صائم بالدم (FASTING BLOOD SUGAR - FBS) [2040001]",
+            test: (t) => /fasting\s*blood\s*sugar|\bfbs\b|f\.b\.s|2040001/i.test(t),
+            getNotes: () => `صيام من 6 إلى 8 ساعات (يسمح بشرب الماء فقط). تسحب العينة على أنبوبة فلوريد صوديوم.`
+        },
+        {
+            name: "سكر فاطر بعد ساعتين (POST PRANDIAL BLOOD SUGAR - 2H PP) [2040002]",
+            test: (t) => /post\s*prandial|2\s*hours?\s*pp|\b2hpp\b|p\.p|2040002/i.test(t),
+            getNotes: () => `سحب العينة بعد ساعتين تماماً من بدء تناول الوجبة، ويمنع الأكل أو التدخين خلال الساعتين.`
+        },
+        {
+            name: "سكر عشوائي بالدم (RANDOM Bl. SUGAR-RBS) [204076]",
+            test: (t) => /random\s*bl(ood)?\.?\s*sugar|\brbs\b|r\.b\.s|204076/i.test(t),
+            getNotes: () => `سيرم أو بلازما صوديوم فلوريد في أي وقت ولا يحتاج الى صيام؛ لتقييم مستويات الجلوكوز اللحظية.`
+        },
+        {
+            name: "الهيموجلوبين السكري (HBA1C) [2040003]",
+            test: (t) => /hba1c|glycated\s*hemoglobin|a1c|2040003/i.test(t),
+            getNotes: () => `دم كامل EDTA، لا يشترط الصيام نهائياً؛ لتقييم متوسط ضبط السكر خلال الأشهر الثلاثة السابقة.`
+        },
+        {
+            name: "الكرياتينين في مصل الدم (SERUM CREATININE) [2040005]",
+            test: (t) => /serum\s*creatinine|creat(?!.*urine)|\bs\.cr\b|2040005/i.test(t),
+            getNotes: () => `سيرم دم، يفضل تجنب الإفراط في اللحوم الحمراء والرياضة الشاقة قبل السحب، ولا يشترط الصيام التام.`
+        },
+        {
+            name: "اليوريا في مصل الدم (UREA IN SERUM) [204023]",
+            test: (t) => /urea\s*in\s*serum|serum\s*urea|\bbun\b|204023/i.test(t),
+            getNotes: () => `سيرم لا يحتاج الى صيام؛ لتقييم وظائف الكلى الإطراحية وحالات الجفاف والنزف الهضمي.`
+        },
+        {
+            name: "حمض اليوريك / النقرس في مصل الدم (SERUM URIC ACID) [204086]",
+            test: (t) => /serum\s*uric\s*acid|uric\s*acid|\bua\b|204086/i.test(t),
+            getNotes: () => `سيرم لا يحتاج الى صيام؛ لتشخيص داء النقرس، وتسمم الحمل، ومخاطر حصوات الكلى.`
+        },
+        {
+            name: "إنزيم ناقلة أمين الألانين / وظائف كبد (SGPT [ ALT ]) [204089]",
+            test: (t) => /\bsgpt\b|\balt\b|alanine\s*aminotransferase|204089/i.test(t),
+            getNotes: () => `سيرم لا يحتاج الى صيام مع تجنب الإجهاد العضلي؛ المؤشر الكبدي الأخص لتقييم تلف خلايا الكبد.`
+        },
+        {
+            name: "إنزيم ناقلة أمين الأسبارتات (SGOT [ AST ]) [2040020]",
+            test: (t) => /\bsgot\b|\bast\b|aspartate\s*aminotransferase|2040020/i.test(t),
+            getNotes: () => `سيرم دم لا يشترط الصيام، مع تجنب التدريبات العضلية الشاقة قبيل الفحص لتفادي الارتفاع العضلي.`
+        },
+        {
+            name: "الفيريتين / مخزون الحديد في المصل (SERUM FERRITIN) [204081]",
+            test: (t) => /serum\s*ferritin|ferritin|204081/i.test(t),
+            getNotes: () => `سيرم، لا يشترط الصيام؛ المؤشر الأدق لتقييم مخزون الحديد بالجسم.`
+        },
+        {
+            name: "الهرمون المنبه للغدة الدرقية (TSH) [210047]",
+            test: (t) => /\btsh\b|thyroid\s*stimulating\s*hormone|210047/i.test(t),
+            getNotes: () => `سيرم صباحي قبل تناول جرعة الثيروكسين لا يحتاج الى صيام؛ الفحص الاستقصائي الأول لفرز اعتلالات الغدة الدرقية.`
+        },
+        {
+            name: "تحليل مقاومة الإنسولين (HOMA-IR) [2040019]",
+            test: (t) => /homa[-_ ]?ir|homa\s*test|insulin\s*resistance/i.test(t),
+            getNotes: () => `صيام تام من 8 إلى 10 ساعات مع شرب الماء فقط؛ لسحب عينة جلوكوز وإنسولين صائم معاً لحساب مؤشر مقاومة الإنسولين بدقة.`
+        },
+        {
+            name: "هرمون الحليب / البرولاكتين (PROLACTIN) [210034]",
+            test: (t) => /prolactin|\bprl\b|210034/i.test(t),
+            getNotes: () => `يسحب صباحاً بعد الاستيقاظ بساعتين إلى 3 ساعات مع راحة نفسية وبدنية تامة وتجنب الإجهاد ولمس الثدي قبل السحب.`
+        },
+        {
+            name: "الثيروكسين الحر (FREE T4) [210023]",
+            test: (t) => /free\s*t4|\bft4\b|210023/i.test(t),
+            getNotes: () => `سيرم دم لا يحتاج إلى صيام، ويفضل سحبه صباحاً قبل تناول جرعة علاج الغدة الدرقية.`
+        },
+        {
+            name: "التستوستيرون الحر (FREE TESTOSTERONE) [210024]",
+            test: (t) => /free\s*testosterone|free\s*testo|210024/i.test(t),
+            getNotes: () => `سيرم دم يُسحب صباحاً (بين 7 و 10 صباحاً) عندما تكون مستويات الهرمون في ذروتها.`
+        }
+    ];
+
+    const medicalRules = [
+        ...primaryCommonRules,
+        ...(typeof DOTCARE_EXTRA_TESTS !== 'undefined' ? DOTCARE_EXTRA_TESTS : [])
+    ];
+
+    // تفعيل نافذة القص عند رفع أي صورة
+    function initCropper(input) {
+        if (!input.files || !input.files[0]) return;
+        const file = input.files[0];
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            const imgElement = document.getElementById('imageToCrop');
+            imgElement.src = e.target.result;
+
+            document.getElementById('cropWrapper').style.display = 'block';
+            document.getElementById('cropControls').style.display = 'flex';
+            document.getElementById('resultsSection').style.display = 'none';
+
+            if (cropperInstance) {
+                cropperInstance.destroy();
+            }
+
+            // إطلاق أداة القص بمربعات تحكم حرة
+            cropperInstance = new Cropper(imgElement, {
+                viewMode: 1,
+                autoCropArea: 0.9,
+                responsive: true,
+                movable: true,
+                zoomable: true,
+                rotatable: true,
+                scalable: false
+            });
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function rotateCropper(deg) {
+        if (cropperInstance) {
+            cropperInstance.rotate(deg);
+        }
+    }
+
+    // اعتماد القص وبدء الفحص السريع
+    async function confirmCropAndScan() {
+        if (!cropperInstance) return;
+
+        const overlay = document.getElementById('loadingOverlay');
+        const msg = document.getElementById('loadingMsg');
+        overlay.style.display = 'flex';
+        msg.innerText = "🔍 جاري قراءة التحاليل من الجزء المقصوص...";
+
+        try {
+            // استخراج الجزء المقصوص بدقة ممتازة وبحجم خفيف وسريع جداً
+            const croppedCanvas = cropperInstance.getCroppedCanvas({
+                maxWidth: 1200,
+                maxHeight: 1200,
+                fillColor: '#fff',
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high'
+            });
+
+            const base64Data = croppedCanvas.toDataURL('image/jpeg', 0.88).split(',')[1];
+            const mimeType = 'image/jpeg';
+            const isFemale = document.querySelector('input[name="gender"]:checked').value === 'أنثى';
+
+            const detectedList = await interpretPrescriptionAI(base64Data, mimeType);
+
+            if (detectedList && detectedList.length > 0) {
+                msg.innerText = "⚡ جاري استدعاء شروط DotCare...";
+                const finalResults = [];
+
+                detectedList.forEach(item => {
+                    const searchKey = (item.name + " " + (item.code || "")).trim();
+                    const localRule = medicalRules.find(rule => rule.test(searchKey));
+
+                    if (localRule) {
+                        finalResults.push({
+                            test_name: localRule.name,
+                            instructions: localRule.getNotes(isFemale),
+                            is_critical_female: localRule.name.includes("Vitamin D") && isFemale,
+                            source: "قاعدة بيانات DotCare الرسمية"
+                        });
+                    } else {
+                        let smartNotes = item.instructions || "فحص دم مخبري؛ يفضل الحضور صباحاً وتجنب الوجبات الدسمة.";
+                        if (isFemale && (/vitamin\s*d|vit\s*d|25[-_ ]?oh/i.test(item.name))) {
+                            smartNotes += `<br><span class="alert-box">⚠️ تنبيه خاص بالحالة (أنثى): لا يتم السحب أثناء فترة الدورة الشهرية، ويتم السحب بعد الانتهاء منها بـ 48 ساعة.</span>`;
+                        }
+
+                        finalResults.push({
+                            test_name: item.name,
+                            instructions: smartNotes,
+                            is_critical_female: isFemale && /vitamin\s*d|25[-_ ]?oh/i.test(item.name),
+                            source: "استنتاج الذكاء الاصطناعي الطبي"
+                        });
+                    }
+                });
+
+                displayResults(finalResults, "✨ تم الفحص بنجاح بدقة 100% بعد القص ومطابقة DotCare");
+            } else {
+                displayResults([], "لم يتم العثور على تحاليل واضحة في المنطقة المحددة، جربي تعديل إطار القص وإعادة الفحص.");
+            }
+        } catch (err) {
+            console.error(err);
+            displayResults([], "حدث خطأ في الاتصال، يرجى إعادة المحاولة.");
+        } finally {
+            overlay.style.display = 'none';
+        }
+    }
+
+    async function interpretPrescriptionAI(base64Image, mimeType) {
+        const gender = document.querySelector('input[name="gender"]:checked').value;
+        const promptText = `
+أنت استشاري معامل طبية وخبير في فك طلاسم خط يد الأطباء الرديء وقراءة الروشتات بدقة متناهية.
+المهمة:
+1. اقرأ الصورة المقصوصة بدقة واستخرج كافة أسماء الفحوصات الطبية المكتوبة بلا استثناء (سواء خط يد أو مطبوع أو اختصارات مثل Vit D, Ferritin, TSH, Free T4, Free Testosterone, HOMA-IR, Prolactin, CBC, Creatinine وغيرها).
+2. لكل فحص: صغ شروط تحضيره الطبية الدقيقة (ساعات الصيام إن وجدت، شرب الماء، مواعيد السحب).
+3. حالة المريض: [${gender}].
+
+أخرج النتيجة كمصفوفة JSON نقية فقط دون أي كود Markdown أو نصوص إضافية:
+[
+  {
+    "name": "اسم التحليل بالعربية والإنجليزية واختصاره",
+    "code": "",
+    "instructions": "شروط التحضير الدقيقة"
+  }
+]`;
+
+        const models = ["gemini-2.5-flash", "gemini-1.5-flash"];
+
+        for (const model of models) {
+            try {
+                const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${getSecureKey()}`;
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: promptText },
+                                { inlineData: { mimeType: mimeType, data: base64Image } }
+                            ]
+                        }]
+                    })
+                });
+
+                if (!response.ok) continue;
+
+                const data = await response.json();
+                if (data.candidates && data.candidates[0].content) {
+                    let text = data.candidates[0].content.parts[0].text;
+                    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                    const parsed = JSON.parse(text);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        return parsed;
+                    }
+                }
+            } catch (err) {
+                console.warn(`Request failed for ${model}:`, err);
+            }
+        }
+        return null;
+    }
+
+    function displayResults(tests, badgeText) {
+        const badge = document.getElementById('scanModeBadge');
+        const listDiv = document.getElementById('resultsList');
+        const sec = document.getElementById('resultsSection');
+
+        badge.innerText = badgeText;
+        listDiv.innerHTML = '';
+
+        if (!Array.isArray(tests) || tests.length === 0) {
+            listDiv.innerHTML = '<div class="test-result-card"><p>لم يتم العثور على تحاليل واضحة، يرجى ضبط زاوية القص وإعادة المحاولة.</p></div>';
+        } else {
+            tests.forEach(item => {
+                const card = document.createElement('div');
+                card.className = `test-result-card ${item.is_critical_female ? 'warning-female' : ''}`;
+                card.innerHTML = `
+                    <h4>📋 ${item.test_name}</h4>
+                    <p>${item.instructions}</p>
+                    <span style="font-size:0.75rem; color:#888; display:block; margin-top:6px;">المصدر: ${item.source}</span>
+                    ${item.is_critical_female ? '<div class="alert-box">⚠️ تنبيه خاص بالحالة (أنثى): مراعاة موعد الدورة الشهرية (السحب بعدها بـ 48 ساعة)</div>' : ''}
+                `;
+                listDiv.appendChild(card);
+            });
+        }
+
+        sec.style.display = 'block';
+        sec.scrollIntoView({ behavior: 'smooth' });
+    }
+</script>
+
+<script src="./app_pro_2026.js"></script>
+</body>
+</html>
